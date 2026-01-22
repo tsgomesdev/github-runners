@@ -48,18 +48,21 @@ jobs:
           echo "📦 Tags que serão geradas: ${TAGS}"
       
       - name: Login no Registry
-        if: github.event_name != 'pull_request' && secrets.REGISTRY_USERNAME != '' && secrets.REGISTRY_PASSWORD != ''
+        if: github.event_name != 'pull_request'
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
-          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${REGISTRY} -u ${{ secrets.REGISTRY_USERNAME }} --password-stdin
-      
-      - name: Aviso - Secrets não configurados
-        if: secrets.REGISTRY_USERNAME == '' || secrets.REGISTRY_PASSWORD == ''
-        run: |
-          echo "⚠️ AVISO: Secrets REGISTRY_USERNAME e/ou REGISTRY_PASSWORD não configurados."
-          echo "O push da imagem será ignorado."
-          echo ""
-          echo "Para configurar, acesse:"
-          echo "https://github.com/${{ github.repository }}/settings/secrets/actions"
+          if [ -n "$REGISTRY_USERNAME" ] && [ -n "$REGISTRY_PASSWORD" ]; then
+            echo "$REGISTRY_PASSWORD" | docker login ${REGISTRY} -u "$REGISTRY_USERNAME" --password-stdin
+            echo "✅ Login realizado com sucesso!"
+          else
+            echo "⚠️ AVISO: Secrets REGISTRY_USERNAME e/ou REGISTRY_PASSWORD não configurados."
+            echo "O push da imagem será ignorado."
+            echo ""
+            echo "Para configurar, acesse:"
+            echo "https://github.com/${{ github.repository }}/settings/secrets/actions"
+          fi
       
       - name: Build da imagem Docker
         run: |
@@ -86,12 +89,19 @@ jobs:
           "
       
       - name: Push da imagem
-        if: github.event_name != 'pull_request' && (github.event.inputs.push_image == 'true' || github.event.inputs.push_image == '') && secrets.REGISTRY_USERNAME != '' && secrets.REGISTRY_PASSWORD != ''
+        if: github.event_name != 'pull_request' && (github.event.inputs.push_image == 'true' || github.event.inputs.push_image == '')
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
-          echo "🚀 Enviando imagens para o registry..."
-          docker push ${REGISTRY}/${IMAGE_NAME}:latest
-          docker push ${REGISTRY}/${IMAGE_NAME}:${{ github.sha }}
-          echo "✅ Push concluído!"
+          if [ -n "$REGISTRY_USERNAME" ] && [ -n "$REGISTRY_PASSWORD" ]; then
+            echo "🚀 Enviando imagens para o registry..."
+            docker push ${REGISTRY}/${IMAGE_NAME}:latest
+            docker push ${REGISTRY}/${IMAGE_NAME}:${{ github.sha }}
+            echo "✅ Push concluído!"
+          else
+            echo "⚠️ Push ignorado - secrets não configurados"
+          fi
       
       - name: Resumo do Build
         run: |
