@@ -1,0 +1,79 @@
+name: Test ARC Runner
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - '.github/workflows/test-runner.yml'
+
+jobs:
+  test:
+    name: Testar Runner ARC
+    runs-on: github-runner-set
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Informações do ambiente
+        run: |
+          echo "🖥️ Sistema Operacional:"
+          cat /etc/os-release | grep -E "^(NAME|VERSION)="
+          
+          echo ""
+          echo "☕ Java:"
+          java -version
+          
+          echo ""
+          echo "📦 Maven:"
+          mvn -version
+          
+          echo ""
+          echo "🐳 Docker:"
+          docker --version
+          
+          echo ""
+          echo "💾 Espaço em disco:"
+          df -h
+          
+          echo ""
+          echo "🧠 Memória:"
+          free -h
+      
+      - name: Testar Docker
+        run: |
+          echo "🐳 Testando Docker..."
+          docker run --rm hello-world
+          echo "✅ Docker funcionando!"
+      
+      - name: Testar build Docker
+        run: |
+          echo "🔨 Testando build de uma imagem simples..."
+          
+          # Criar Dockerfile de teste
+          cat > /tmp/Dockerfile <<EOF
+          FROM alpine:latest
+          RUN echo "Hello from ARC Runner!"
+          CMD ["echo", "Build successful!"]
+          EOF
+          
+          # Build
+          docker build -t test-image:latest /tmp/
+          
+          # Executar
+          docker run --rm test-image:latest
+          
+          echo "✅ Build Docker funcionando!"
+      
+      - name: Resumo
+        run: |
+          echo "## ✅ Teste do Runner ARC" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "O runner está funcionando corretamente!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Ferramentas disponíveis:" >> $GITHUB_STEP_SUMMARY
+          echo "- ☕ Java 21" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 Maven 3.9" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 Docker" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐍 Python 3" >> $GITHUB_STEP_SUMMARY

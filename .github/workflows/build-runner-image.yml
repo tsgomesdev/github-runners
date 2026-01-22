@@ -1,0 +1,97 @@
+name: Build e Push GitHub Runner Image
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'github-runners/**'
+      - '.github/workflows/build-runner-image.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'github-runners/**'
+  workflow_dispatch:
+    inputs:
+      push_image:
+        description: 'Push image to registry'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  REGISTRY: registry.tasso.dev.br
+  IMAGE_NAME: github-runner
+
+jobs:
+  build:
+    name: Build Runner Image
+    runs-on: github-runner-set
+    
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+      
+      - name: Configurar metadata da imagem
+        id: meta
+        run: |
+          # Definir tags
+          TAGS="${REGISTRY}/${IMAGE_NAME}:latest"
+          TAGS="${TAGS},${REGISTRY}/${IMAGE_NAME}:${{ github.sha }}"
+          
+          # Se for uma tag, adicionar a versão
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            TAGS="${TAGS},${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+          fi
+          
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "📦 Tags que serão geradas: ${TAGS}"
+      
+      - name: Login no Registry
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${REGISTRY} -u ${{ secrets.REGISTRY_USERNAME }} --password-stdin
+      
+      - name: Build da imagem Docker
+        run: |
+          cd github-runners
+          docker build \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            -t ${REGISTRY}/${IMAGE_NAME}:latest \
+            -t ${REGISTRY}/${IMAGE_NAME}:${{ github.sha }} \
+            .
+      
+      - name: Verificar imagem
+        run: |
+          echo "📋 Imagens construídas:"
+          docker images | grep ${IMAGE_NAME}
+          
+          echo ""
+          echo "🔍 Verificando ferramentas na imagem:"
+          docker run --rm ${REGISTRY}/${IMAGE_NAME}:latest bash -c "
+            echo '✅ Java:' && java -version 2>&1 | head -1
+            echo '✅ Maven:' && mvn -version 2>&1 | head -1
+            echo '✅ Docker CLI:' && docker --version
+          "
+      
+      - name: Push da imagem
+        if: github.event_name != 'pull_request' && (github.event.inputs.push_image == 'true' || github.event.inputs.push_image == '')
+        run: |
+          echo "🚀 Enviando imagens para o registry..."
+          docker push ${REGISTRY}/${IMAGE_NAME}:latest
+          docker push ${REGISTRY}/${IMAGE_NAME}:${{ github.sha }}
+          echo "✅ Push concluído!"
+      
+      - name: Resumo do Build
+        run: |
+          echo "## 🐳 Build da Imagem Docker" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Registry** | \`${REGISTRY}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Imagem** | \`${IMAGE_NAME}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tag Latest** | \`${REGISTRY}/${IMAGE_NAME}:latest\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tag SHA** | \`${REGISTRY}/${IMAGE_NAME}:${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY

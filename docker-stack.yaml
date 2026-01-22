@@ -1,0 +1,17 @@
+version: '3.3'
+services:
+ github_docker_runner:
+    image: ${IMAGE_RUNNER}
+    networks:
+        - az_devops_arquitetura
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+        - ORGANIZATION=${ORGANIZATION}
+        - ACCESS_TOKEN=${ACCESS_TOKEN}
+    deploy:
+        replicas: 1
+        placement:
+          constraints: [node.platform.os == linux]
+networks:
+  az_devops_arquitetura:

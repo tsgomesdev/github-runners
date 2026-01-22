@@ -1,0 +1,72 @@
+apiVersion: actions.github.com/v1alpha1
+kind: AutoscalingRunnerSet
+metadata:
+  name: github-runner-set
+  namespace: arc-runners
+spec:
+  # Substitua pela URL da sua organização GitHub
+  # Exemplo: https://github.com/sua-organizacao
+  githubConfigUrl: "https://github.com/${ORGANIZATION}"
+  
+  # Referência ao secret que contém o ACCESS_TOKEN
+  githubConfigSecret: github-arc-secret
+  
+  minRunners: 0
+  maxRunners: 10
+  
+  template:
+    spec:
+      containers:
+        # Container principal do runner - usando a mesma imagem do Docker Swarm
+        - name: runner
+          image: ${IMAGE_RUNNER}
+          command: ["./start.sh"]
+          env:
+            - name: DOCKER_HOST
+              value: "tcp://localhost:2375"
+            - name: ORGANIZATION
+              valueFrom:
+                secretKeyRef:
+                  name: github-arc-secret
+                  key: organization
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: work
+              mountPath: /home/docker/_work
+
+        # Container Sidecar para Docker (DinD - Docker in Docker)
+        - name: dind
+          image: docker:24-dind
+          securityContext:
+            privileged: true
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: work
+              mountPath: /home/docker/_work
+            - name: docker-storage
+              mountPath: /var/lib/docker
+
+      volumes:
+        - name: work
+          emptyDir: {}
+        - name: docker-storage
+          emptyDir: {}
+      
+      # Equivalente ao constraint do Swarm: node.platform.os == linux
+      nodeSelector:
+        kubernetes.io/os: linux
