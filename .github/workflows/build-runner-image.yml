@@ -48,9 +48,18 @@ jobs:
           echo "📦 Tags que serão geradas: ${TAGS}"
       
       - name: Login no Registry
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && secrets.REGISTRY_USERNAME != '' && secrets.REGISTRY_PASSWORD != ''
         run: |
           echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${REGISTRY} -u ${{ secrets.REGISTRY_USERNAME }} --password-stdin
+      
+      - name: Aviso - Secrets não configurados
+        if: secrets.REGISTRY_USERNAME == '' || secrets.REGISTRY_PASSWORD == ''
+        run: |
+          echo "⚠️ AVISO: Secrets REGISTRY_USERNAME e/ou REGISTRY_PASSWORD não configurados."
+          echo "O push da imagem será ignorado."
+          echo ""
+          echo "Para configurar, acesse:"
+          echo "https://github.com/${{ github.repository }}/settings/secrets/actions"
       
       - name: Build da imagem Docker
         run: |
@@ -77,7 +86,7 @@ jobs:
           "
       
       - name: Push da imagem
-        if: github.event_name != 'pull_request' && (github.event.inputs.push_image == 'true' || github.event.inputs.push_image == '')
+        if: github.event_name != 'pull_request' && (github.event.inputs.push_image == 'true' || github.event.inputs.push_image == '') && secrets.REGISTRY_USERNAME != '' && secrets.REGISTRY_PASSWORD != ''
         run: |
           echo "🚀 Enviando imagens para o registry..."
           docker push ${REGISTRY}/${IMAGE_NAME}:latest
