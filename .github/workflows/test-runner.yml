@@ -13,6 +13,19 @@ jobs:
     runs-on: github-runner-set
     
     steps:
+      - name: Aguardar Docker daemon
+        run: |
+          echo "⏳ Aguardando Docker daemon iniciar..."
+          for i in {1..30}; do
+            if docker info >/dev/null 2>&1; then
+              echo "✅ Docker daemon pronto!"
+              break
+            fi
+            echo "Tentativa $i/30..."
+            sleep 2
+          done
+          docker version
+      
       - name: Checkout
         uses: actions/checkout@v4
       
