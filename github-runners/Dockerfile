@@ -2,7 +2,7 @@
 FROM ubuntu:24.04
 
 # Set the github runner version - check for latest releases https://github.com/actions/runner/releases
-ARG RUNNER_VERSION="2.328.0"
+ARG RUNNER_VERSION="2.331.0"
 ARG RUNNER_USER="docker"
 ARG RUNNER_HOME="/home/${RUNNER_USER}"
 

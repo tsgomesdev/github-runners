@@ -24,7 +24,8 @@ template:
             mountPath: /home/docker/_work
 
       - name: dind
-        image: docker:24-dind
+        image: docker:dind
+        imagePullPolicy: Always
         securityContext:
           privileged: true
         env:
