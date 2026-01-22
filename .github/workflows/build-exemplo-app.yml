@@ -56,7 +56,7 @@ jobs:
       - name: Testar imagem
         run: |
           echo "🧪 Testando a imagem..."
-          docker run --rm ${REGISTRY}/${IMAGE_NAME}:latest echo "Container executou com sucesso!"
+          docker run --rm --entrypoint /bin/sh ${REGISTRY}/${IMAGE_NAME}:latest -c "echo 'Container executou com sucesso!'"
       
       - name: Push da imagem
         if: github.event_name != 'pull_request'
