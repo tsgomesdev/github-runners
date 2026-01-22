@@ -132,13 +132,16 @@ helm version
 ```
 github-arc/
 ├── README.md                    # Esta documentação
+├── arc-values.yaml             # Configuração do Runner Scale Set (Helm values)
 ├── docker-stack.yaml           # (Antigo) Configuração do Docker Swarm
-├── github-arc.yaml             # Manifesto do AutoscalingRunnerSet
-├── github-arc-secret.yaml      # Template do Secret com credenciais
-├── deploy.sh                   # Script automatizado de deploy
+├── github-arc.yaml             # Manifesto do AutoscalingRunnerSet (alternativo)
+├── .github/
+│   └── workflows/
+│       ├── test-runner.yml         # Workflow para testar o runner
+│       ├── build-runner-image.yml  # Workflow para build da imagem
+│       └── build-exemplo-app.yml   # Workflow de exemplo
 └── github-runners/
-    ├── Dockerfile              # Imagem personalizada do runner
-    └── start.sh                # Script de inicialização do runner
+    └── Dockerfile              # Imagem personalizada do runner
 ```
 
 ---
@@ -226,6 +229,7 @@ kubectl create secret generic github-arc-secret \
 
 Este é o recurso que define como os runners serão criados.
 
+**Opção 1: Usando linha de comando (básico)**
 ```bash
 helm install github-runner-set \
     --namespace arc-runners \
@@ -236,14 +240,73 @@ helm install github-runner-set \
     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
 ```
 
-**Exemplo:**
+**Opção 2: Usando arquivo de configuração (recomendado para DinD)**
+
+Crie o arquivo `arc-values.yaml`:
+
+```yaml
+# arc-values.yaml
+githubConfigUrl: "https://github.com/tsgomesdev/github-runners"
+githubConfigSecret: github-arc-secret
+minRunners: 0
+maxRunners: 10
+
+template:
+  spec:
+    containers:
+      # Container do Runner
+      - name: runner
+        image: registry.tasso.dev.br/github-runner:latest
+        imagePullPolicy: Always
+        command: ["/home/docker/actions-runner/run.sh"]
+        env:
+          - name: DOCKER_HOST
+            value: "tcp://localhost:2375"
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+        volumeMounts:
+          - name: work
+            mountPath: /home/docker/_work
+
+      # Container DinD (Docker in Docker)
+      - name: dind
+        image: docker:dind
+        imagePullPolicy: Always
+        securityContext:
+          privileged: true
+        env:
+          - name: DOCKER_TLS_CERTDIR
+            value: ""
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+        volumeMounts:
+          - name: work
+            mountPath: /home/docker/_work
+          - name: docker-storage
+            mountPath: /var/lib/docker
+
+    volumes:
+      - name: work
+        emptyDir: {}
+      - name: docker-storage
+        emptyDir: {}
+```
+
+Instale usando o arquivo:
 ```bash
 helm install github-runner-set \
     --namespace arc-runners \
-    --set githubConfigUrl="https://github.com/tsgomesdev" \
-    --set githubConfigSecret=github-arc-secret \
-    --set minRunners=0 \
-    --set maxRunners=10 \
+    -f arc-values.yaml \
     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
 ```
 
@@ -254,6 +317,8 @@ helm install github-runner-set \
 | `githubConfigSecret` | Nome do secret criado no passo anterior |
 | `minRunners` | Número mínimo de runners sempre ativos (0 = econômico) |
 | `maxRunners` | Número máximo de runners simultâneos |
+| `DOCKER_HOST` | Endereço do daemon Docker (DinD) |
+| `imagePullPolicy: Always` | Garante que sempre baixa a imagem mais recente |
 
 ### Passo 6: Verificar a Instalação
 
@@ -317,6 +382,19 @@ jobs:
     runs-on: github-runner-set
     
     steps:
+      - name: Aguardar Docker daemon
+        run: |
+          echo "⏳ Aguardando Docker daemon iniciar..."
+          for i in {1..30}; do
+            if docker info >/dev/null 2>&1; then
+              echo "✅ Docker daemon pronto!"
+              break
+            fi
+            echo "Tentativa $i/30..."
+            sleep 2
+          done
+          docker version
+      
       - uses: actions/checkout@v4
       
       - name: Login no Registry
@@ -328,6 +406,8 @@ jobs:
       - name: Push da imagem
         run: docker push minha-app:${{ github.sha }}
 ```
+
+> ⚠️ **Importante:** O step "Aguardar Docker daemon" é necessário porque o sidecar DinD pode demorar alguns segundos para iniciar. Sem esse step, você pode receber o erro "Cannot connect to the Docker daemon".
 
 ### Exemplo com Maven
 
@@ -498,6 +578,57 @@ kubectl get pod <NOME_DO_POD> -n arc-runners -o jsonpath='{.spec.containers[*].n
 ```
 
 Se não estiver usando DinD, você precisa configurar o runner set com o sidecar do Docker.
+
+### Problema: "Cannot connect to the Docker daemon at tcp://localhost:2375"
+
+O daemon Docker (DinD) precisa de alguns segundos para iniciar. Adicione um step de espera no início do seu workflow:
+
+```yaml
+steps:
+  - name: Aguardar Docker daemon
+    run: |
+      echo "⏳ Aguardando Docker daemon iniciar..."
+      for i in {1..30}; do
+        if docker info >/dev/null 2>&1; then
+          echo "✅ Docker daemon pronto!"
+          break
+        fi
+        echo "Tentativa $i/30..."
+        sleep 2
+      done
+      docker version
+```
+
+### Problema: "client version X.XX is too new. Maximum supported API version is Y.YY"
+
+Incompatibilidade de versão entre cliente Docker no runner e daemon DinD.
+
+**Solução:** Atualize a imagem do DinD para versão compatível no `arc-values.yaml`:
+
+```yaml
+- name: dind
+  image: docker:dind  # Use a tag 'dind' para versão mais recente
+  imagePullPolicy: Always
+```
+
+### Problema: "Runner version vX.X.X is deprecated and cannot receive messages"
+
+A versão do runner está desatualizada.
+
+**Solução:** Atualize o `RUNNER_VERSION` no Dockerfile e reconstrua a imagem:
+
+```bash
+# No Dockerfile, atualize:
+ARG RUNNER_VERSION="2.331.0"  # Use a versão mais recente
+
+# Rebuild com --no-cache para garantir nova versão
+cd github-runners
+docker build --no-cache -t registry.tasso.dev.br/github-runner:latest .
+docker push registry.tasso.dev.br/github-runner:latest
+
+# Delete os pods para usar nova imagem
+kubectl delete pods -n arc-runners -l app.kubernetes.io/component=runner
+```
 
 ### Problema: Runner demora para iniciar
 
